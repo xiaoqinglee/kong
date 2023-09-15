@@ -522,7 +522,7 @@ local function update_in_place(new_version)
 
   set_state(new)
 
-  return true
+  return "updated"
 end
 
 

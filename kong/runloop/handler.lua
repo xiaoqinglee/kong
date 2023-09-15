@@ -12,7 +12,7 @@ local certificate  = require "kong.runloop.certificate"
 local concurrency  = require "kong.concurrency"
 local lrucache     = require "resty.lrucache"
 local ktls         = require "resty.kong.tls"
-
+local global       = require "kong.global"
 
 
 
@@ -454,7 +454,7 @@ local function update_router()
     return nil, --[[ 'err' fully formatted ]] err
   end
 
-  return true
+  return "updated"
 end
 
 
@@ -538,7 +538,7 @@ local function update_plugins_iterator()
     return nil, --[[ 'err' fully formatted ]] err
   end
 
-  return true
+  return "updated"
 end
 
 
@@ -583,7 +583,7 @@ local function build_wasm_state()
 
   WASM_STATE_VERSION = version
 
-  return true
+  return ok
 end
 
 
@@ -1015,83 +1015,54 @@ return {
       if strategy ~= "off" then
         local worker_state_update_frequency = kong.configuration.worker_state_update_frequency or 1
 
-        local router_async_opts = {
-          name = "router",
-          timeout = 0,
-          on_timeout = "return_true",
-        }
-
-        local function rebuild_router_timer(premature)
+        local function rebuild_timer(premature)
           if premature then
             return
           end
 
-          -- Don't wait for the semaphore (timeout = 0) when updating via the
-          -- timer.
-          -- If the semaphore is locked, that means that the rebuild is
-          -- already ongoing.
-          local ok, err = rebuild_router(router_async_opts)
-          if not ok then
-            log(ERR, "could not rebuild router via timer: ", err)
-          end
-        end
-
-        local _, err = kong.timer:named_every("router-rebuild",
-                                         worker_state_update_frequency,
-                                         rebuild_router_timer)
-        if err then
-          log(ERR, "could not schedule timer to rebuild router: ", err)
-        end
-
-        local plugins_iterator_async_opts = {
-          name = "plugins_iterator",
-          timeout = 0,
-          on_timeout = "return_true",
-        }
-
-        local function rebuild_plugins_iterator_timer(premature)
-          if premature then
-            return
-          end
-
-          local _, err = rebuild_plugins_iterator(plugins_iterator_async_opts)
-          if err then
-            log(ERR, "could not rebuild plugins iterator via timer: ", err)
-          end
-        end
-
-        local _, err = kong.timer:named_every("plugins-iterator-rebuild",
-                                         worker_state_update_frequency,
-                                         rebuild_plugins_iterator_timer)
-        if err then
-          log(ERR, "could not schedule timer to rebuild plugins iterator: ", err)
-        end
-
-
-        if wasm.enabled() then
-          local wasm_async_opts = {
-            name = "wasm",
+          local router_update_status, err = rebuild_router({
+            name = "router",
             timeout = 0,
             on_timeout = "return_true",
-          }
+          })
+          if not router_update_status then
+            log(ERR, "could not rebuild router via timer: ", err)
+          end
 
-          local function rebuild_wasm_filter_chains_timer(premature)
-            if premature then
-              return
-            end
+          local plugins_iterator_update_status, err = rebuild_plugins_iterator({
+            name = "plugins_iterator",
+            timeout = 0,
+            on_timeout = "return_true",
+          })
+          if not plugins_iterator_update_status then
+            log(ERR, "could not rebuild plugins iterator via timer: ", err)
+          end
 
-            local _, err = rebuild_wasm_state(wasm_async_opts)
+          local wasm_update_status
+          if wasm.enabled() then
+            wasm_update_status, err = rebuild_wasm_state({
+              name = "wasm",
+              timeout = 0,
+              on_timeout = "return_true",
+            })
             if err then
               log(ERR, "could not rebuild wasm filter chains via timer: ", err)
             end
           end
 
-          local _, err = kong.timer:named_every("wasm-filter-chains-rebuild",
-                                           worker_state_update_frequency,
-                                           rebuild_wasm_filter_chains_timer)
-          if err then
-            log(ERR, "could not schedule timer to rebuild wasm filter chains: ", err)
+          if router_update_status == "updated"
+            or plugins_iterator_update_status == "updated"
+            or wasm_update_status == "updated" then
+            global.LAST_RECONFIGURATION = ngx.now()
+            log(NOTICE, "configuration update was processed")
           end
+        end
+
+        local _, err = kong.timer:named_every("rebuild",
+                                         worker_state_update_frequency,
+                                         rebuild_timer)
+        if err then
+          log(ERR, "could not schedule timer to rebuild: ", err)
         end
       end
     end,
@@ -1182,6 +1153,24 @@ return {
   },
   access = {
     before = function(ctx)
+      -- if this is a version-conditional get, abort the request if this dataplane has not processed the configuration
+      -- since the time indicated
+      local if_reconfigured_since = kong.request.get_header('x-kong-if-reconfigured-since')
+      if if_reconfigured_since then
+        if_reconfigured_since = ngx.parse_http_time(if_reconfigured_since)
+        log(INFO, "get if reconfigured since ", if_reconfigured_since, " last reconfiguration at ", global.LAST_RECONFIGURATION)
+        if if_reconfigured_since and if_reconfigured_since > global.LAST_RECONFIGURATION then
+          return kong.response.error(
+                  503,
+                  "Service Unavailable",
+                  {
+                    ["X-Kong-Reconfiguration-Status"] = "pending",
+                    ["Retry-After"] = tostring(kong.configuration.worker_state_update_frequency or 1),
+                  }
+          )
+        end
+      end
+
       -- if there is a gRPC service in the context, don't re-execute the pre-access
       -- phase handler - it has been executed before the internal redirect
       if ctx.service and (ctx.service.protocol == "grpc" or

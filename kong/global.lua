@@ -69,6 +69,7 @@ end
 
 local _GLOBAL = {
   phases = phase_checker.phases,
+  LAST_RECONFIGURATION = ngx.now(),
 }
 
 
