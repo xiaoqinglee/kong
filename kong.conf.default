@@ -2077,3 +2077,15 @@
 # - `resolver_add`
 # - `proxy_wasm_request_headers_in_access`
 # - `shm_queue`
+
+#------------------------------------------------------------------------------
+# KONNECT LOG SHIPPING
+#------------------------------------------------------------------------------
+
+#error_log_pipe_path =
+                        # Path to named pipe for error
+                        # log shipping through vector.dev
+
+                        # If this option is set, vector.dev
+                        # will be started and all error logs
+                        # will also be sent.
