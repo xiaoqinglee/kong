@@ -170,7 +170,6 @@ function _M.log()
 
   req_tr_ctx:mock_upstream_phase()
   local output = req_tr_ctx:to_json()
-  local request_id = req_tr_ctx:get_root_context_kv("request_id")
 
   if #output >= LOG_JSON_TRUNCATE_LENGTH then
     -- split the output into N parts
@@ -187,18 +186,18 @@ function _M.log()
 
     local nparts = #parts
     for no, part in ipairs(parts) do
-      local msg = string_format("%s id: %s parts: %d/%d output: %s",
+      local msg = string_format("%s parts: %d/%d output: %s",
                                 constants.REQUEST_DEBUG_LOG_PREFIX,
-                                request_id, no, nparts, part)
+                                no, nparts, part)
       ngx.log(ngx.NOTICE, msg)
     end
 
     return
   end
 
-  local msg = string_format("%s id: %s output: %s",
+  local msg = string_format("%s output: %s",
                             constants.REQUEST_DEBUG_LOG_PREFIX,
-                            request_id, output)
+                            output)
   ngx.log(ngx.NOTICE, msg)
 end
 

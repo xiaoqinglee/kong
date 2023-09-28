@@ -156,6 +156,13 @@ end
 
 
 local function get_output_log(deployment, path, filter, fake_ip, token)
+  if deployment == "traditional" then
+    helpers.clean_logfile("servroot/logs/error.log")
+
+  elseif deployment == "hybrid" then
+    helpers.clean_logfile(DP_PREFIX .. "/logs/error.log")
+  end 
+
   local proxy_client = helpers.proxy_client()
   local res = assert(proxy_client:send {
     method = "GET",
@@ -174,10 +181,7 @@ local function get_output_log(deployment, path, filter, fake_ip, token)
     return nil
   end
 
-  local output = assert(cjson.decode(res.headers["X-Kong-Request-Debug-Output"]))
-  local request_id = assert(output.request_id)
-
-  local keyword = "[request-debug] id: " .. request_id
+  local keyword = "[request-debug]"
 
   if deployment == "traditional" then
     path = pl_path.join(helpers.test_conf.prefix, "logs/error.log")
