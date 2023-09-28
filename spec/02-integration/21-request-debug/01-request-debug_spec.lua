@@ -175,9 +175,9 @@ local function get_output_log(deployment, path, filter, fake_ip, token)
   end
 
   local output = assert(cjson.decode(res.headers["X-Kong-Request-Debug-Output"]))
-  local debug_id = assert(output.debug_id)
+  local request_id = assert(output.request_id)
 
-  local keyword = "[request-debug] id: " .. debug_id
+  local keyword = "[request-debug] id: " .. request_id
 
   if deployment == "traditional" then
     path = pl_path.join(helpers.test_conf.prefix, "logs/error.log")
@@ -433,7 +433,7 @@ describe(desc, function()
     assert_has_output_header(deployment, "/", "*", "1.1.1.1", TOKEN)
   end)
 
-  it("has debug_id and workspace_id", function()
+  it("has request_id and workspace_id", function()
     local route_id = setup_route("/dummy", upstream)
 
     finally(function()
@@ -447,10 +447,10 @@ describe(desc, function()
     local header_output = assert_has_output_header(deployment, "/dummy", "*")
     local log_output = assert_has_output_log(deployment, "/dummy", "*")
 
-    assert.truthy(header_output.debug_id)
+    assert.truthy(header_output.request_id)
     assert.truthy(header_output.workspace_id)
 
-    assert.truthy(log_output.debug_id)
+    assert.truthy(log_output.request_id)
     assert.truthy(log_output.workspace_id)
   end)
 
